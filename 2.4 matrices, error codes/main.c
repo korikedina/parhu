@@ -25,8 +25,8 @@ int main(void)
 	cl_platform_id platform_id;
     err = clGetPlatformIDs(1, &platform_id, &n_platforms);
 	if (err != CL_SUCCESS) {
-		printf("[ERROR] Error calling clGetPlatformIDs. Error code: %d\n", err);
-		return 0;
+        printErrorDetails(err, errorArray, 90);
+
 	}
 
     // Get device
@@ -40,7 +40,8 @@ int main(void)
 		&n_devices
 	);
 	if (err != CL_SUCCESS) {
-		printf("[ERROR] Error calling clGetDeviceIDs. Error code: %d\n", err);
+        printErrorDetails(err, errorArray, 90);
+
 		return 0;
 	}
 
@@ -100,7 +101,7 @@ int main(void)
     );
     printf("Real size   : %d\n", real_size);
     printf("Binary size : %d\n", sizes_param[0]);
-    cl_kernel kernel = clCreateKernel(program, "multiply", NULL);
+    cl_kernel kernel = clCreateKernel(program, "trans", NULL);
 
     // Create the host buffer and initialize it
     float *host_buffer1 = (float*)malloc(SAMPLE_SIZE * sizeof(float)*4);
@@ -167,9 +168,7 @@ int main(void)
         NULL
     );
     if (err != CL_SUCCESS) {
-        printf("Build error! Code: %d\n", err);
         printErrorDetails(err, errorArray, 90);
-    
     }
     clFinish(command_queue);
 
@@ -186,7 +185,6 @@ int main(void)
         NULL
     );
     if (err != CL_SUCCESS) {
-        printf("Build error! Code: %d\n", err);
         printErrorDetails(err, errorArray, 90);
     }
     for (i = 0; i < SAMPLE_SIZE*2; ++i) {
