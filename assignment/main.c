@@ -3,8 +3,8 @@
 #define CL_TARGET_OPENCL_VERSION 220
 #include <CL/cl.h>
 
-#include <stdio.h>
 #include <stdlib.h>
+#include <wav.h>
 
 #include "errorcode.h"
 #pragma OPENCL EXTENSION cl_khr_fp16 : enable
@@ -14,17 +14,28 @@ const int SAMPLE_SIZE = 2;
 int main(void)
 {
     uint32_t data_size = 0;
-    int16_t *audio_data = read_wav_file("assets/remalomfold.wav", &data_size);
+    WAV wav;
+    read_wav_file("assets/remalomfold.wav", &wav);
+
+    for(int i = 401289; i <= 401299; i++)
+        {
+            float left = (float)(wav.aud_data.samples[i].left) / 32767.5f;
+            float right = (float)(wav.aud_data.samples[i].right) / 32767.5f;
+
+            printf("[%d] left: %.6f right: %.6f\n",i+1, left, right);
+        }
+    /*
     if (audio_data) {
         // Do something with the audio data, for example, print the first few samples
         printf("First few audio samples:\n");
-        for (size_t i = 0; i < 10 && i < data_size / sizeof(int16_t); i++) {
-            printf("%d\n", audio_data[i]);
+        for (size_t i = 0; i < data_size / sizeof(int16_t); i++) {
+            printf("%d. %d\n", i,  audio_data[i]);
         }
 
         // Remember to free the allocated memory
         free(audio_data);
     }
+    */
     struct errorcode errorArray[90];
     readErrorsFromFile(errorArray);
     int i;
@@ -110,8 +121,8 @@ int main(void)
         sizes_param,
         &real_size
     );
-    printf("Real size   : %d\n", real_size);
-    printf("Binary size : %d\n", sizes_param[0]);
+    //printf("Real size   : %d\n", real_size);
+    //printf("Binary size : %d\n", sizes_param[0]);
     cl_kernel kernel = clCreateKernel(program, "trans", NULL);
 
     // Create the host buffer and initialize it
@@ -199,7 +210,7 @@ int main(void)
         printErrorDetails(err, errorArray, 90);
     }
     for (i = 0; i < SAMPLE_SIZE*2; ++i) {
-        printf("[%d] = %f, ", i, host_result[i]);
+        //printf("[%d] = %f, ", i, host_result[i]);
     }
     clFinish(command_queue);
 

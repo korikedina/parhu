@@ -1,6 +1,18 @@
 #include <stdint.h>
 
-#pragma pack(push, 1)
+typedef struct
+{
+    int16_t left;
+    int16_t right;
+} audio;
+
+typedef struct {
+    audio* samples;
+    uint32_t num_samples;
+} audio_data;
+
+
+
 typedef struct {
     char riff[4];            
     uint32_t size;           
@@ -12,8 +24,13 @@ typedef struct {
     uint32_t sample_rate;    
     uint32_t byte_rate;      
     uint16_t block_align;    
-    uint16_t bits_per_sample;
-    char data[4];            
-    uint32_t data_size;      
+    uint16_t bits_per_sample; 
 } wav_header_t;
-#pragma pack(pop)
+
+typedef struct {
+    wav_header_t header;
+    audio_data aud_data;
+} WAV;
+
+
+void read_wav_file(char* fileName, WAV* wav);
