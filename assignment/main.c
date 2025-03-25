@@ -17,25 +17,13 @@ int main(void)
     WAV wav;
     read_wav_file("assets/remalomfold.wav", &wav);
 
-    for(int i = 401289; i <= 401299; i++)
-        {
-            float left = (float)(wav.aud_data.samples[i].left) / 32767.5f;
-            float right = (float)(wav.aud_data.samples[i].right) / 32767.5f;
+    /* for(int i = 0; i <= 6557501; i++){
+        float left = (float)(wav.aud_data.samples[i].left) / 32767.5f;
+        float right = (float)(wav.aud_data.samples[i].right) / 32767.5f;
 
-            printf("[%d] left: %.6f right: %.6f\n",i+1, left, right);
-        }
-    /*
-    if (audio_data) {
-        // Do something with the audio data, for example, print the first few samples
-        printf("First few audio samples:\n");
-        for (size_t i = 0; i < data_size / sizeof(int16_t); i++) {
-            printf("%d. %d\n", i,  audio_data[i]);
-        }
+        if(left-right!=0) printf("[%d]", left-right);
+    } */
 
-        // Remember to free the allocated memory
-        free(audio_data);
-    }
-    */
     struct errorcode errorArray[90];
     readErrorsFromFile(errorArray);
     int i;
@@ -71,7 +59,7 @@ int main(void)
     cl_context context = clCreateContext(NULL, n_devices, &device_id, NULL, NULL, NULL);
 
     // Build the program
-    const char* kernel_code = load_kernel_source("kernels/matrixoperations.cl", &error_code);
+    const char* kernel_code = load_kernel_source("kernels/averages.cl", &error_code);
     if (error_code != 0) {
         printf("Source code loading error!\n");
         return 0;
@@ -123,97 +111,108 @@ int main(void)
     );
     //printf("Real size   : %d\n", real_size);
     //printf("Binary size : %d\n", sizes_param[0]);
-    cl_kernel kernel = clCreateKernel(program, "trans", NULL);
+    cl_kernel kernel = clCreateKernel(program, "avg", NULL);
 
     // Create the host buffer and initialize it
-    float *host_buffer1 = (float*)malloc(SAMPLE_SIZE * sizeof(float)*4);
-    float *host_buffer2 = (float*)malloc(SAMPLE_SIZE * sizeof(float)*4);
-    float *host_result = (float*)malloc(SAMPLE_SIZE * sizeof(float)*4);
-    for (i = 0; i < 4; ++i) {
-        host_buffer1[i] = (float)i;
-        host_buffer2[i] = (float)(i+1);
+    int16_t *host_buffer1 = (int16_t*)malloc(SAMPLE_SIZE * sizeof(int16_t)*4);
+    int16_t *host_buffer2 = (int16_t*)malloc(SAMPLE_SIZE * sizeof(int16_t)*4);
+    int16_t *host_result = (int16_t*)malloc(SAMPLE_SIZE * sizeof(int16_t)*4);
+    int s=0;
+    while(s<=6557501){
+        printf("%d\n", s);
+
+        for (i = s; i < s+4; ++i) {
+            int16_t left=wav.aud_data.samples[i].left;
+            int16_t right=wav.aud_data.samples[i].right;
+            host_buffer1[i] = left;
+            host_buffer2[i] = right;
+
+        }
+        s+=4;
+
+        // Create the device buffer
+        cl_mem device_buffer1 = clCreateBuffer(context, CL_MEM_READ_ONLY, SAMPLE_SIZE * sizeof(int16_t)*4, NULL, &err);
+        cl_mem device_buffer2 = clCreateBuffer(context, CL_MEM_READ_ONLY, SAMPLE_SIZE * sizeof(int16_t)*4, NULL, &err);
+        cl_mem device_result = clCreateBuffer(context, CL_MEM_WRITE_ONLY, SAMPLE_SIZE * sizeof(int16_t)*4, NULL, &err);
+        if(err!=CL_SUCCESS){
+            printErrorDetails(err, errorArray, 90);
+        }
+
+        // Set kernel arguments
+        clSetKernelArg(kernel, 0, sizeof(cl_mem), (void*)&device_buffer1);
+        clSetKernelArg(kernel, 1, sizeof(cl_mem), (void*)&device_buffer2);
+        clSetKernelArg(kernel, 2, sizeof(cl_mem), (void*)&device_result);
+
+        // Create the command queue
+        cl_command_queue command_queue = clCreateCommandQueue(context, device_id, NULL, NULL);
+
+        // Host buffer -> Device buffer
+        clEnqueueWriteBuffer(
+            command_queue,
+            device_buffer1,
+            CL_FALSE,
+            0,
+            SAMPLE_SIZE * sizeof(int16_t)*4,
+            host_buffer1,
+            0,
+            NULL,
+            NULL
+        );
+
+        clEnqueueWriteBuffer(
+            command_queue,
+            device_buffer2,
+            CL_FALSE,
+            0,
+            SAMPLE_SIZE * sizeof(int16_t)*4,
+            host_buffer2,
+            0,
+            NULL,
+            NULL
+        );
+        
+        // Size specification
+        size_t local_work_size = 1;
+        size_t global_work_size = SAMPLE_SIZE;
+
+        // Apply the kernel on the range
+        err=clEnqueueNDRangeKernel(
+            command_queue,
+            kernel,
+            1,
+            NULL,
+            &global_work_size,
+            &local_work_size,
+            0,
+            NULL,
+            NULL
+        );
+        if (err != CL_SUCCESS) {
+            printErrorDetails(err, errorArray, 90);
+        }
+        clFinish(command_queue);
+
+        // Host buffer <- Device buffer
+        err=clEnqueueReadBuffer(
+            command_queue,
+            device_result,
+            CL_TRUE,
+            0,
+            SAMPLE_SIZE * sizeof(int16_t),
+            host_result,
+            0,
+            NULL,
+            NULL
+        );
+        if (err != CL_SUCCESS) {
+            printErrorDetails(err, errorArray, 90);
+        }
+
+        printf("%f\n", host_result);
+
+        clFinish(command_queue);
+
     }
-
-    // Create the device buffer
-    cl_mem device_buffer1 = clCreateBuffer(context, CL_MEM_READ_ONLY, SAMPLE_SIZE * sizeof(float)*4, NULL, NULL);
-    cl_mem device_buffer2 = clCreateBuffer(context, CL_MEM_READ_ONLY, SAMPLE_SIZE * sizeof(float)*4, NULL, NULL);
-    cl_mem device_result = clCreateBuffer(context, CL_MEM_WRITE_ONLY, SAMPLE_SIZE * sizeof(float)*4, NULL, NULL);
-
-    // Set kernel arguments
-    clSetKernelArg(kernel, 0, sizeof(cl_mem), (void*)&device_buffer1);
-    clSetKernelArg(kernel, 1, sizeof(cl_mem), (void*)&device_buffer2);
-    clSetKernelArg(kernel, 2, sizeof(cl_mem), (void*)&device_result);
-    clSetKernelArg(kernel, 3, sizeof(int), (void*)&SAMPLE_SIZE);
-
-    // Create the command queue
-    cl_command_queue command_queue = clCreateCommandQueue(context, device_id, NULL, NULL);
-
-    // Host buffer -> Device buffer
-    clEnqueueWriteBuffer(
-        command_queue,
-        device_buffer1,
-        CL_FALSE,
-        0,
-        SAMPLE_SIZE * sizeof(float)*4,
-        host_buffer1,
-        0,
-        NULL,
-        NULL
-    );
-
-    clEnqueueWriteBuffer(
-        command_queue,
-        device_buffer2,
-        CL_FALSE,
-        0,
-        SAMPLE_SIZE * sizeof(float)*4,
-        host_buffer2,
-        0,
-        NULL,
-        NULL
-    );
-    
-    // Size specification
-    size_t local_work_size = 1;
-    size_t global_work_size = SAMPLE_SIZE;
-
-    // Apply the kernel on the range
-    err=clEnqueueNDRangeKernel(
-        command_queue,
-        kernel,
-        1,
-        NULL,
-        &global_work_size,
-        &local_work_size,
-        0,
-        NULL,
-        NULL
-    );
-    if (err != CL_SUCCESS) {
-        printErrorDetails(err, errorArray, 90);
-    }
-    clFinish(command_queue);
-
-    // Host buffer <- Device buffer
-    err=clEnqueueReadBuffer(
-        command_queue,
-        device_result,
-        CL_TRUE,
-        0,
-        SAMPLE_SIZE * sizeof(float)*4,
-        host_result,
-        0,
-        NULL,
-        NULL
-    );
-    if (err != CL_SUCCESS) {
-        printErrorDetails(err, errorArray, 90);
-    }
-    for (i = 0; i < SAMPLE_SIZE*2; ++i) {
-        //printf("[%d] = %f, ", i, host_result[i]);
-    }
-    clFinish(command_queue);
-
 
     // Release the resources
     clReleaseKernel(kernel);
@@ -223,4 +222,5 @@ int main(void)
 
     free(host_buffer1);
     free(host_buffer2);
+    free(host_result);
 }
