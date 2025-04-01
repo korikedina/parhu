@@ -114,26 +114,45 @@ int main(void)
     cl_kernel kernel = clCreateKernel(program, "avg", NULL);
 
     // Create the host buffer and initialize it
-    int16_t *host_buffer1 = (int16_t*)malloc(SAMPLE_SIZE * sizeof(int16_t)*4);
-    int16_t *host_buffer2 = (int16_t*)malloc(SAMPLE_SIZE * sizeof(int16_t)*4);
-    int16_t *host_result = (int16_t*)malloc(SAMPLE_SIZE * sizeof(int16_t)*4);
-    int s=0;
-    while(s<=6557501){
-        printf("%d\n", s);
+    int16_t *host_buffer1 = (int16_t*)malloc( sizeof(int16_t)*4);
+    int16_t *host_buffer2 = (int16_t*)malloc( sizeof(int16_t)*4);
+    if (host_buffer1 == NULL || host_buffer2 == NULL) {
+        printf("Memory allocation failed!\n");
+        exit(1);  // or handle the error
+    }
+    int16_t *host_result = (int16_t*)malloc(sizeof(int16_t));
+    int s=22775;
 
-        for (i = s; i < s+4; ++i) {
+     /* for(i=0; i<25500; i++){
+        if(wav.aud_data.samples[i].left!=0){
+            printf("%d\n", i);
+            printf("L %u\n", wav.aud_data.samples[i].left);
+            printf("R %u\n", wav.aud_data.samples[i].right);
+        }
+    }  */
+
+    //while(s<6557501){
+        printf("%d. result\n", s);
+
+        for (i = s; i < s+4; i++) {
+            printf("%d.\n", i-s);
             int16_t left=wav.aud_data.samples[i].left;
+            //printf("L %u\n", left);
             int16_t right=wav.aud_data.samples[i].right;
-            host_buffer1[i] = left;
-            host_buffer2[i] = right;
+            //printf("R %u\n", right);
+            host_buffer1[i-s] = i-s;
+            printf("bl %u\n",host_buffer1[i-s]);
+            host_buffer2[i-s] = i-s;
+            printf("br %u\n",host_buffer2[i-s]);
 
         }
+
         s+=4;
 
         // Create the device buffer
         cl_mem device_buffer1 = clCreateBuffer(context, CL_MEM_READ_ONLY, SAMPLE_SIZE * sizeof(int16_t)*4, NULL, &err);
         cl_mem device_buffer2 = clCreateBuffer(context, CL_MEM_READ_ONLY, SAMPLE_SIZE * sizeof(int16_t)*4, NULL, &err);
-        cl_mem device_result = clCreateBuffer(context, CL_MEM_WRITE_ONLY, SAMPLE_SIZE * sizeof(int16_t)*4, NULL, &err);
+        cl_mem device_result = clCreateBuffer(context, CL_MEM_WRITE_ONLY, sizeof(int16_t), NULL, &err);
         if(err!=CL_SUCCESS){
             printErrorDetails(err, errorArray, 90);
         }
@@ -173,7 +192,7 @@ int main(void)
         
         // Size specification
         size_t local_work_size = 1;
-        size_t global_work_size = SAMPLE_SIZE;
+        size_t global_work_size = 1;
 
         // Apply the kernel on the range
         err=clEnqueueNDRangeKernel(
@@ -190,7 +209,6 @@ int main(void)
         if (err != CL_SUCCESS) {
             printErrorDetails(err, errorArray, 90);
         }
-        clFinish(command_queue);
 
         // Host buffer <- Device buffer
         err=clEnqueueReadBuffer(
@@ -208,17 +226,23 @@ int main(void)
             printErrorDetails(err, errorArray, 90);
         }
 
-        printf("%f\n", host_result);
+        printf("R %u\n", host_result);
 
         clFinish(command_queue);
 
-    }
+    //}
 
     // Release the resources
+    // Add after clFinish()
+    clReleaseMemObject(device_buffer1);
+    clReleaseMemObject(device_buffer2);
+    clReleaseMemObject(device_result);
     clReleaseKernel(kernel);
+    clReleaseCommandQueue(command_queue); 
     clReleaseProgram(program);
     clReleaseContext(context);
     clReleaseDevice(device_id);
+
 
     free(host_buffer1);
     free(host_buffer2);
