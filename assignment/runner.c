@@ -49,6 +49,8 @@ int main() {
             }
 
             char buffer[256];
+            int parsed_samples_per_group = 0;
+            unsigned int parsed_num_groups = 0;
             double kernel_execution_time = 0.0;
             double kernel_processing_time = 0.0;
             double total_processing_time = 0.0;
@@ -58,10 +60,16 @@ int main() {
                 printf("%s", buffer); // Print the output of main.exe
 
                 // Parse the JSON-like array output
-                if (sscanf(buffer, "  %u,", &num_groups) == 1) continue;
-                if (sscanf(buffer, "  %lf,", &kernel_execution_time) == 1) continue;
-                if (sscanf(buffer, "  %lf,", &kernel_processing_time) == 1) continue;
-                if (sscanf(buffer, "  %lf", &total_processing_time) == 1) continue;
+                if (sscanf(buffer, "[ %d, %u, %lf, %lf, %lf ]",
+                           &parsed_samples_per_group,
+                           &parsed_num_groups,
+                           &kernel_execution_time,
+                           &kernel_processing_time,
+                           &total_processing_time) == 5) {
+                    // Successfully parsed all values
+                    printf("Parsed: SamplesPerGroup=%d, NumGroups=%u, KernelExecTime=%.3f, KernelProcTime=%.3f, TotalProcTime=%.3f\n",
+                           parsed_samples_per_group, parsed_num_groups, kernel_execution_time, kernel_processing_time, total_processing_time);
+                }
             }
 
             int ret = _pclose(pipe); // Use _pclose on Windows
@@ -75,6 +83,9 @@ int main() {
             total_kernel_execution_time += kernel_execution_time;
             total_kernel_processing_time += kernel_processing_time;
             total_total_processing_time += total_processing_time;
+
+            // Update num_groups (it should remain constant across iterations)
+            num_groups = parsed_num_groups;
         }
 
         // Calculate averages

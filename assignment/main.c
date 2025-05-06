@@ -246,6 +246,8 @@ int main(int argc, char* argv[]) {
         goto cleanup;
     }
 
+    clock_t kernel_end = clock();
+
     // Wait for the kernel to finish execution
     err = clWaitForEvents(1, &kernel_event);
     if (err != CL_SUCCESS) {
@@ -264,7 +266,6 @@ int main(int argc, char* argv[]) {
     }
 
     double kernel_execution_time_ms = (end_time - start_time) / 1e6; // Kernel execution time in milliseconds
-    clock_t kernel_end = clock();
     double kernel_processing_time_ms = (double)(kernel_end - kernel_start) / CLOCKS_PER_SEC * 1000.0; // Kernel processing time in milliseconds
 
     clock_t full_end = clock();
