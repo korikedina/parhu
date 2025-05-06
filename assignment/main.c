@@ -7,23 +7,34 @@
 #include <wav.h>
 
 #include "errorcode.h"
+#include <time.h>
+#include <malloc.h>
+
 #pragma OPENCL EXTENSION cl_khr_fp16 : enable
 
 const int SAMPLE_SIZE = 2;
+
+typedef struct {
+    short s0, s1, s2, s3, s4, s5, s6, s7, s8, s9, s10, s11, s12, s13, s14, s15;
+} short16;
+
+typedef struct {
+    short s0, s1, s2, s3, s4, s5, s6, s7;
+} short8;
+
+typedef struct {
+    short s0, s1, s2, s3;
+} short4;
+
 
 int main(void)
 {
     uint32_t data_size = 0;
     WAV wav;
+
     read_wav_file("assets/remalomfold.wav", &wav);
-
-    for(int i = 0; i <= 6557501; i++){
-        float left = (float)(wav.aud_data.samples[i].left) / 32767.5f;
-        float right = (float)(wav.aud_data.samples[i].right) / 32767.5f;
-        float diff = left - right;
-
-        //if((diff != 0.0f)!=0) printf("%d. [%f]", i, diff);
-    } 
+    uint32_t total_samples = wav.aud_data.num_samples; // Use num_samples instead of size
+    uint32_t total_groups = total_samples / 64; // Updated for short16
 
     struct errorcode errorArray[90];
     readErrorsFromFile(errorArray);
@@ -122,108 +133,81 @@ int main(void)
         return 0;
     }
 
-    // Create the host buffer and initialize it - change to short4 size
-    int16_t *host_buffer1 = (int16_t*)malloc(sizeof(int16_t) * 4); // One short4
-    int16_t *host_buffer2 = (int16_t*)malloc(sizeof(int16_t) * 4);
-    if (host_buffer1 == NULL || host_buffer2 == NULL) {
-        printf("Memory allocation failed!\n");
-        clReleaseKernel(kernel);
-        clReleaseProgram(program);
-        clReleaseContext(context);
-        clReleaseDevice(device_id);
-        exit(1);
-    }
-    int16_t *host_result = (int16_t*)malloc(sizeof(int16_t) * 4); // Space for one short4
+    // Calculate total number of samples
+    clock_t full_start = clock();
 
-    int s = 3893317;
+    printf("Processing %u samples\n", total_samples);
+    
+    // Create the host buffers for all samples
+    size_t buffer_size = sizeof(short) * total_samples; // Flat buffer for all samples
+    printf("Attempting to allocate %zu bytes for host_buffer1\n", buffer_size);
 
-    // Print some surrounding samples for context
-    for (i = s-2; i < s+6; i++) {
-        printf("Sample[%d]: L=%d R=%d\n", 
-               i, 
-               wav.aud_data.samples[i].left,
-               wav.aud_data.samples[i].right);
-    }
+    // Create the device buffers with CL_MEM_ALLOC_HOST_PTR
+    cl_mem device_buffer1 = clCreateBuffer(context, CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, buffer_size, NULL, &err);
+    cl_mem device_buffer2 = clCreateBuffer(context, CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, buffer_size, NULL, &err);
+    cl_mem device_result = clCreateBuffer(context, CL_MEM_WRITE_ONLY | CL_MEM_ALLOC_HOST_PTR, sizeof(short) * total_groups, NULL, &err);
 
-    // Populate buffers with actual audio data as short4 vectors
-    for (i = 0; i < 4; i++) {
-        // Print input data for debugging
-        printf("Input left[%d]: %d\n", i, wav.aud_data.samples[s+i].left);
-        printf("Input right[%d]: %d\n", i, wav.aud_data.samples[s+i].right);
-        
-        // Each vector has 4 components
-        host_buffer1[i] = wav.aud_data.samples[s+i].left;
-        host_buffer2[i] = wav.aud_data.samples[s+i].right;
-    }
-
-    // Create the device buffer - adjust size for short4
-    cl_mem device_buffer1 = clCreateBuffer(context, CL_MEM_READ_ONLY, sizeof(int16_t) * 4, NULL, &err);
-    cl_mem device_buffer2 = clCreateBuffer(context, CL_MEM_READ_ONLY, sizeof(int16_t) * 4, NULL, &err);
-    cl_mem device_result = clCreateBuffer(context, CL_MEM_WRITE_ONLY, sizeof(int16_t) * 4, NULL, &err);
-    if(err != CL_SUCCESS){
-        printErrorDetails(err, errorArray, 90);
-        goto cleanup;
-    }
-
-    // Set kernel arguments with error checking
-    err = clSetKernelArg(kernel, 0, sizeof(cl_mem), (void*)&device_buffer1);
-    if (err != CL_SUCCESS) {
-        printErrorDetails(err, errorArray, 90);
-        goto cleanup;
-    }
-    err = clSetKernelArg(kernel, 1, sizeof(cl_mem), (void*)&device_buffer2);
-    if (err != CL_SUCCESS) {
-        printErrorDetails(err, errorArray, 90);
-        goto cleanup;
-    }
-    err = clSetKernelArg(kernel, 2, sizeof(cl_mem), (void*)&device_result);
     if (err != CL_SUCCESS) {
         printErrorDetails(err, errorArray, 90);
         goto cleanup;
     }
 
     // Create the command queue with appropriate properties
-    cl_command_queue command_queue = clCreateCommandQueue(context, device_id, 0, &err);
+    cl_command_queue command_queue = clCreateCommandQueue(context, device_id, CL_QUEUE_PROFILING_ENABLE, &err);
     if (err != CL_SUCCESS) {
         printErrorDetails(err, errorArray, 90);
         goto cleanup;
     }
 
-    // Add work size specifications
-    size_t global_work_size = 1;  // Start with one work-item
-    size_t local_work_size = 1;   
+    // Map device buffers to host-accessible pointers
+    short* host_buffer1 = (short*)clEnqueueMapBuffer(command_queue, device_buffer1, CL_TRUE, CL_MAP_WRITE, 0, buffer_size, 0, NULL, NULL, &err);
+    short* host_buffer2 = (short*)clEnqueueMapBuffer(command_queue, device_buffer2, CL_TRUE, CL_MAP_WRITE, 0, buffer_size, 0, NULL, NULL, &err);
+    short* host_result = (short*)clEnqueueMapBuffer(command_queue, device_result, CL_TRUE, CL_MAP_READ, 0, sizeof(short) * total_groups, 0, NULL, NULL, &err);
+
+    if (err != CL_SUCCESS || !host_buffer1 || !host_buffer2 || !host_result) {
+        printf("Failed to map device buffers to host memory\n");
+        goto cleanup;
+    }
+
+    // Populate buffers with all audio data
+    for (int i = 0; i < total_samples; i++) {
+        host_buffer1[i] = wav.aud_data.samples[i].left;
+        host_buffer2[i] = wav.aud_data.samples[i].right;
+    }
+
+    // Unmap buffers before kernel execution
+    err = clEnqueueUnmapMemObject(command_queue, device_buffer1, host_buffer1, 0, NULL, NULL);
+    err |= clEnqueueUnmapMemObject(command_queue, device_buffer2, host_buffer2, 0, NULL, NULL);
+    if (err != CL_SUCCESS) {
+        printErrorDetails(err, errorArray, 90);
+        goto cleanup;
+    }
+
+    // Set kernel arguments with error checking
+    err = clSetKernelArg(kernel, 0, sizeof(cl_mem), (void*)&device_buffer1);
+    err |= clSetKernelArg(kernel, 1, sizeof(cl_mem), (void*)&device_buffer2);
+    err |= clSetKernelArg(kernel, 2, sizeof(cl_mem), (void*)&device_result);
+    if (err != CL_SUCCESS) {
+        printErrorDetails(err, errorArray, 90);
+        goto cleanup;
+    }
+
+    // Calculate total number of sample groups (64 samples each)
+    printf("Processing %u sample groups (64 samples each)\n", total_groups);
+
+    // Set work sizes for parallel processing
+    size_t global_work_size = total_groups;  // Process groups of 64 samples
+    size_t local_work_size = 64;  // Use workgroups of 64 items (1024 samples total)
+    
+    // Adjust global_work_size to be multiple of local_work_size
+    global_work_size = ((global_work_size + local_work_size - 1) / local_work_size) * local_work_size;
 
     // Add event synchronization
     cl_event write_event1, write_event2;
     
-    // Write buffers with events
-    err = clEnqueueWriteBuffer(
-        command_queue,
-        device_buffer1,
-        CL_FALSE,
-        0,
-        sizeof(int16_t) * 4,
-        host_buffer1,
-        0,
-        NULL,
-        &write_event1
-    );
-    if (err != CL_SUCCESS) {
-        printErrorDetails(err, errorArray, 90);
-        goto cleanup;
-    }
-
-    err = clEnqueueWriteBuffer(
-        command_queue,
-        device_buffer2,
-        CL_FALSE,
-        0,
-        sizeof(int16_t) * 4,
-        host_buffer2,
-        0,
-        NULL,
-        &write_event2
-    );
+    // Write all samples to device
+    err = clEnqueueWriteBuffer(command_queue, device_buffer1, CL_FALSE, 0, buffer_size, host_buffer1, 0, NULL, &write_event1);
+    err |= clEnqueueWriteBuffer(command_queue, device_buffer2, CL_FALSE, 0, buffer_size, host_buffer2, 0, NULL, &write_event2);
     if (err != CL_SUCCESS) {
         printErrorDetails(err, errorArray, 90);
         goto cleanup;
@@ -239,49 +223,69 @@ int main(void)
         goto cleanup;
     }
 
-    // Launch kernel after writes complete
+    // Launch kernel to process all samples
     cl_event kernel_event;
-    err = clEnqueueNDRangeKernel(
-        command_queue,
-        kernel,
-        1,
-        NULL,
-        &global_work_size,
-        &local_work_size,
-        2,           // Wait for both writes
-        write_events,
-        &kernel_event
-    );
+    clock_t kernel_start = clock();
+
+    err = clEnqueueNDRangeKernel(command_queue, kernel, 1, NULL, &global_work_size, &local_work_size, 0, NULL, &kernel_event);
     if (err != CL_SUCCESS) {
         printErrorDetails(err, errorArray, 90);
         goto cleanup;
     }
 
-    // Host buffer <- Device buffer
-    err = clEnqueueReadBuffer(
-        command_queue,
-        device_result,
-        CL_TRUE,
-        0,
-        sizeof(int16_t) * 4,  // Size for short4 result
-        host_result,
-        0,
-        NULL,
-        NULL
-    );
+    // Wait for the kernel to finish execution
+    err = clWaitForEvents(1, &kernel_event);
     if (err != CL_SUCCESS) {
         printErrorDetails(err, errorArray, 90);
         goto cleanup;
     }
 
-    // Print all components of the result
-    printf("Result: %d\n", 
-           *host_result);
+    // Get profiling information
+    cl_ulong start_time, end_time;
+    err = clGetEventProfilingInfo(kernel_event, CL_PROFILING_COMMAND_START, sizeof(cl_ulong), &start_time, NULL);
+    err |= clGetEventProfilingInfo(kernel_event, CL_PROFILING_COMMAND_END, sizeof(cl_ulong), &end_time, NULL);
+
+    if (err != CL_SUCCESS) {
+        printErrorDetails(err, errorArray, 90);
+        goto cleanup;
+    }
+
+    double kernel_duration_ms = (end_time - start_time) / 1e6;
+    printf("Kernel execution time: %.3f ms\n", kernel_duration_ms);
+
+    // After kernel execution, map the result buffer to read results
+    host_result = (short*)clEnqueueMapBuffer(command_queue, device_result, CL_TRUE, CL_MAP_READ, 0, sizeof(short) * total_groups, 0, NULL, NULL, &err);
+    if (err != CL_SUCCESS) {
+        printErrorDetails(err, errorArray, 90);
+        goto cleanup;
+    }
+
+    // Print first few results as a sample
+/*     for (int i = 0; i < total_groups; i++) {
+        if (host_result[i] != 0) printf("Group[%d] result: %d\n", i, host_result[i]);
+    } */
+
+    // Unmap the result buffer
+    err = clEnqueueUnmapMemObject(command_queue, device_result, host_result, 0, NULL, NULL);
+    if (err != CL_SUCCESS) {
+        printErrorDetails(err, errorArray, 90);
+        goto cleanup;
+    }
 
     clFinish(command_queue);
 
+    clock_t kernel_end = clock();
+    double kernel_duration = (double)(kernel_end - kernel_start) / CLOCKS_PER_SEC;
+    printf("Kernel processing time: %.3f ms\n", kernel_duration * 1000.0);
+
+    clock_t full_end = clock();
+    double full_duration = (double)(full_end - full_start) / CLOCKS_PER_SEC;
+    double full_duration_ms = ((double)(full_end - full_start) / CLOCKS_PER_SEC) * 1000.0;
+    printf("Total processing time (host + GPU): %.3f ms\n", full_duration_ms);
+
+
 cleanup:
-    // Release all resources
+    // Release resources
     if (host_buffer1) free(host_buffer1);
     if (host_buffer2) free(host_buffer2);
     if (host_result) free(host_result);
@@ -289,8 +293,8 @@ cleanup:
     if (device_buffer2) clReleaseMemObject(device_buffer2);
     if (device_result) clReleaseMemObject(device_result);
     if (kernel) clReleaseKernel(kernel);
-    if (command_queue) clReleaseCommandQueue(command_queue);
     if (program) clReleaseProgram(program);
+    if (command_queue) clReleaseCommandQueue(command_queue);
     if (context) clReleaseContext(context);
     if (device_id) clReleaseDevice(device_id);
 

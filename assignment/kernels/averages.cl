@@ -1,31 +1,25 @@
-__kernel void avg(__global short* buffer1, __global short* buffer2, __global short* result)
-{    
-    // Simple fixed string printf first
-    
-    // Get work-item ID 
+__kernel void avg(
+    __global const short* buffer1,
+    __global const short* buffer2,
+    __global short* result)
+{
     int gid = get_global_id(0);
-    
-    // Early exit for out-of-bounds
-    if (gid >= 4) {
-        return;
+
+    // Process 64 consecutive elements
+    int base_index = gid * 64;
+
+    short sum = 0;
+    for (int i = 0; i < 64; i++) {
+        short l = buffer1[base_index + i];
+        short r = buffer2[base_index + i];
+
+        // Calculate the difference
+        short diff = l - r;
+
+        // Accumulate the difference
+        sum += diff;
     }
 
-    // Get the values from the buffers
-    short4 left = buffer1[gid];  
-    short4 right = buffer2[gid];
-    short4 diff = {0, 0, 0, 0};
-
-    // Calculate the differences
-    for (int i = 0; i < 4; i++) {
-        diff[i] = left[i] - right[i];
-    }
-    
-    // Calculate the average
-    short avg = 0;
-    for (int i = 0; i < 4; i++) {
-        avg += diff[i];
-    }
-    avg = (short)(avg / 4);
-    // Store the result in the output buffer    
-    result[gid] = avg;
+    // Store the average of the differences
+    result[gid] = sum / 64;
 }
