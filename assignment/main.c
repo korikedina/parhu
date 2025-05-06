@@ -27,14 +27,24 @@ typedef struct {
 } short4;
 
 
-int main(void)
-{
+int main(int argc, char* argv[]) {
+    if (argc != 2) {
+        printf("Usage: %s <num_samples_per_group>\n", argv[0]);
+        return 1;
+    }
+
+    int num_samples_per_group = atoi(argv[1]);
+    if (num_samples_per_group <= 0) {
+        printf("Error: Number of samples per group must be a positive integer.\n");
+        return 1;
+    }
+
     uint32_t data_size = 0;
     WAV wav;
 
     read_wav_file("assets/remalomfold.wav", &wav);
     uint32_t total_samples = wav.aud_data.num_samples; // Use num_samples instead of size
-    uint32_t total_groups = total_samples / 64; // Updated for short16
+    uint32_t total_groups = total_samples / num_samples_per_group; // Updated for variable samples per group
 
     struct errorcode errorArray[90];
     readErrorsFromFile(errorArray);
@@ -85,12 +95,15 @@ int main(void)
         return 0;
     }
 
-    const char options[] = "-D SET_ME=1234";
+    // Build the program
+    char options[256];
+    snprintf(options, sizeof(options), "-DNUM_SAMPLES_PER_GROUP=%d", num_samples_per_group);
+
     err = clBuildProgram(
         program,
         1,
         &device_id,
-        options,
+        options, // Pass the macro definition here
         NULL,
         NULL
     );
@@ -192,12 +205,12 @@ int main(void)
         goto cleanup;
     }
 
-    // Calculate total number of sample groups (64 samples each)
-    printf("Processing %u sample groups (64 samples each)\n", total_groups);
+    // Calculate total number of sample groups (variable samples each)
+    printf("Processing %u sample groups (%d samples each)\n", total_groups, num_samples_per_group);
 
     // Set work sizes for parallel processing
-    size_t global_work_size = total_groups;  // Process groups of 64 samples
-    size_t local_work_size = 64;  // Use workgroups of 64 items (1024 samples total)
+    size_t global_work_size = total_groups;  // Process groups of variable samples
+    size_t local_work_size = num_samples_per_group;  // Use workgroups of variable items
     
     // Adjust global_work_size to be multiple of local_work_size
     global_work_size = ((global_work_size + local_work_size - 1) / local_work_size) * local_work_size;
@@ -250,8 +263,21 @@ int main(void)
         goto cleanup;
     }
 
-    double kernel_duration_ms = (end_time - start_time) / 1e6;
-    printf("Kernel execution time: %.3f ms\n", kernel_duration_ms);
+    double kernel_execution_time_ms = (end_time - start_time) / 1e6; // Kernel execution time in milliseconds
+    clock_t kernel_end = clock();
+    double kernel_processing_time_ms = (double)(kernel_end - kernel_start) / CLOCKS_PER_SEC * 1000.0; // Kernel processing time in milliseconds
+
+    clock_t full_end = clock();
+    double total_processing_time_ms = (double)(full_end - full_start) / CLOCKS_PER_SEC * 1000.0; // Total processing time in milliseconds
+
+    // Output the results as an array
+    printf("[\n");
+    printf("  %d, // Number of samples per group\n", num_samples_per_group);
+    printf("  %u, // Number of groups\n", total_groups);
+    printf("  %.3f, // Kernel execution time (ms)\n", kernel_execution_time_ms);
+    printf("  %.3f, // Kernel processing time (ms)\n", kernel_processing_time_ms);
+    printf("  %.3f  // Total processing time (ms)\n", total_processing_time_ms);
+    printf("]\n");
 
     // After kernel execution, map the result buffer to read results
     host_result = (short*)clEnqueueMapBuffer(command_queue, device_result, CL_TRUE, CL_MAP_READ, 0, sizeof(short) * total_groups, 0, NULL, NULL, &err);
@@ -274,15 +300,13 @@ int main(void)
 
     clFinish(command_queue);
 
-    clock_t kernel_end = clock();
     double kernel_duration = (double)(kernel_end - kernel_start) / CLOCKS_PER_SEC;
     printf("Kernel processing time: %.3f ms\n", kernel_duration * 1000.0);
 
-    clock_t full_end = clock();
     double full_duration = (double)(full_end - full_start) / CLOCKS_PER_SEC;
     double full_duration_ms = ((double)(full_end - full_start) / CLOCKS_PER_SEC) * 1000.0;
     printf("Total processing time (host + GPU): %.3f ms\n", full_duration_ms);
-
+    return 0;
 
 cleanup:
     // Release resources

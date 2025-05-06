@@ -1,0 +1,9 @@
+NumSamplesPerGroup,NumGroups,AvgKernelExecutionTime,AvgKernelProcessingTime,AvgTotalProcessingTime
+4,16,0.000,0.000,0.000
+8,15,0.000,0.000,0.000
+16,16,0.000,0.000,0.000
+32,15,0.000,0.000,0.000
+64,16,0.000,0.000,0.000
+128,16,0.000,0.000,0.000
+256,16,0.000,0.000,0.000
+512,16,0.000,0.000,0.000
