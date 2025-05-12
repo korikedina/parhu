@@ -273,11 +273,11 @@ int main(int argc, char* argv[]) {
 
     // Output the results as an array
     printf("[\n");
-    printf("  %d, // Number of samples per group\n", num_samples_per_group);
-    printf("  %u, // Number of groups\n", total_groups);
-    printf("  %.3f, // Kernel execution time (ms)\n", kernel_execution_time_ms);
-    printf("  %.3f, // Kernel processing time (ms)\n", kernel_processing_time_ms);
-    printf("  %.3f  // Total processing time (ms)\n", total_processing_time_ms);
+    printf("  %d,\n", num_samples_per_group);
+    printf("  %u,\n", total_groups);
+    printf("  %.3f,\n", kernel_execution_time_ms);
+    printf("  %.3f,\n", kernel_processing_time_ms);
+    printf("  %.3f\n", total_processing_time_ms);
     printf("]\n");
 
     // After kernel execution, map the result buffer to read results
