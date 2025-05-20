@@ -25,13 +25,12 @@ int main() {
 
     // Write the header if it doesn't exist
     if (!has_header) {
-        fprintf(csv_file, "NumSamplesPerGroup,NumGroups,AvgKernelExecutionTime,AvgKernelProcessingTime,AvgTotalProcessingTime\n");
+        fprintf(csv_file, "NumSamplesPerGroup,NumGroups,AvgKernelExecutionTime,AvgTotalProcessingTime\n");
     }
 
     // Loop through sample numbers 4, 8, 16, ..., 256
     for (int num_samples_per_group = 4; num_samples_per_group <= 256; num_samples_per_group *= 2) {
         double total_kernel_execution_time = 0.0;
-        double total_kernel_processing_time = 0.0;
         double total_total_processing_time = 0.0;
         unsigned int num_groups = 0;
 
@@ -39,98 +38,87 @@ int main() {
             printf("Running iteration %d with %d samples per group...\n", i, num_samples_per_group);
 
             char command[256];
-            snprintf(command, sizeof(command), "main.exe %d", num_samples_per_group); // Pass the parameter to main.exe
+            snprintf(command, sizeof(command), "sequential.exe %d", num_samples_per_group); // Pass the parameter to sequential.exe
 
             FILE* pipe = _popen(command, "r"); // Use _popen on Windows
             if (!pipe) {
-                printf("Error: Failed to run main.exe on iteration %d with %d samples per group\n", i, num_samples_per_group);
+                printf("Error: Failed to run sequential.exe on iteration %d with %d samples per group\n", i, num_samples_per_group);
                 fclose(csv_file);
                 return 1;
             }
 
             char buffer[256];
+            char array_buffer[1024] = ""; // Buffer to store complete array
             int parsed_samples_per_group = 0;
             unsigned int parsed_num_groups = 0;
             double kernel_execution_time = 0.0;
-            double kernel_processing_time = 0.0;
             double total_processing_time = 0.0;
 
-            // Parse the output of main.exe
-            char json_buffer[1024] = ""; // Buffer to accumulate JSON-like array
-            int inside_json = 0;         // Flag to track if we're inside a JSON-like array
-
+            int inside_array = 0;
+            
+            // Parse the output of sequential.exe
             while (fgets(buffer, sizeof(buffer), pipe) != NULL) {
-                printf("%s", buffer); // Print the output of main.exe
+                // Skip metadata lines before the array
+                if (strstr(buffer, "Audio Format") || 
+                    strstr(buffer, "Number of Channels") ||
+                    strstr(buffer, "Sample Rate") ||
+                    strstr(buffer, "Block Align") ||
+                    strstr(buffer, "Bits per Sample") ||
+                    strstr(buffer, "Id is data") ||
+                    strstr(buffer, "Number of total samples")) {
+                    continue;
+                }
 
-                // Check if the line starts with '[' to identify the start of the JSON-like array
-                if (buffer[0] == '[') {
-                    inside_json = 1; // Start accumulating JSON-like array
-                    strcpy(json_buffer, buffer); // Copy the first line into the buffer
-                } else if (inside_json) {
-                    // Accumulate lines until the closing ']'
-                    strcat(json_buffer, buffer);
-                    if (strchr(buffer, ']') != NULL) {
-                        // End of JSON-like array
-                        inside_json = 0;
+                // Remove newlines and concatenate array lines
+                char* newline = strchr(buffer, '\n');
+                if (newline) *newline = ' ';
+                
+                strcat(array_buffer, buffer);
 
-                        // Parse the accumulated JSON-like array
-                        if (sscanf(json_buffer, "[ %d, %u, %lf, %lf, %lf ]",
-                                   &parsed_samples_per_group,
-                                   &parsed_num_groups,
-                                   &kernel_execution_time,
-                                   &kernel_processing_time,
-                                   &total_processing_time) == 5) {
-                            // Successfully parsed all values
-                            printf("Parsed: SamplesPerGroup=%d, NumGroups=%u, KernelExecTime=%.3f, KernelProcTime=%.3f, TotalProcTime=%.3f\n",
-                                   parsed_samples_per_group, parsed_num_groups, kernel_execution_time, kernel_processing_time, total_processing_time);
+                // Once we have the complete array, parse it
+                if (strstr(buffer, "]")) {
+                    if (sscanf(array_buffer, "[ %d, %u, %lf, %lf ]",
+                           &parsed_samples_per_group,
+                           &parsed_num_groups,
+                           &kernel_execution_time,
+                           &total_processing_time) == 4) {
+                        
+                        // Successfully parsed all values
+                        printf("Parsed: SamplesPerGroup=%d, NumGroups=%u, KernelExecTime=%.3f, TotalProcTime=%.3f\n",
+                               parsed_samples_per_group, parsed_num_groups, 
+                               kernel_execution_time, total_processing_time);
 
-                            // Accumulate totals for averaging
-                            printf("Accumulating: KernelExecTime=%.3f, KernelProcTime=%.3f, TotalProcTime=%.3f\n",
-                                   kernel_execution_time, kernel_processing_time, total_processing_time);
+                        // Accumulate totals for averaging
+                        total_kernel_execution_time += kernel_execution_time;
+                        total_total_processing_time += total_processing_time;
 
-                            total_kernel_execution_time += kernel_execution_time;
-                            total_kernel_processing_time += kernel_processing_time;
-                            total_total_processing_time += total_processing_time;
-
-                            // Update num_groups (it should remain constant across iterations)
-                            num_groups = parsed_num_groups;
-                        } else {
-                            // Parsing failed
-                            printf("Error: Failed to parse accumulated JSON: %s\n", json_buffer);
-                        }
-
-                        // Clear the buffer for the next JSON-like array
-                        json_buffer[0] = '\0';
+                        // Update num_groups (it should remain constant across iterations)
+                        num_groups = parsed_num_groups;
                     }
-                } else {
-                    // Skip irrelevant lines
-                    printf("Skipping irrelevant line: %s\n", buffer);
+                    // Reset array buffer for next iteration
+                    array_buffer[0] = '\0';
                 }
             }
 
             int ret = _pclose(pipe); // Use _pclose on Windows
             if (ret != 0) {
-                printf("Error: main.exe returned %d on iteration %d with %d samples per group\n", ret, i, num_samples_per_group);
+                printf("Error: sequential.exe returned %d on iteration %d with %d samples per group\n", ret, i, num_samples_per_group);
                 fclose(csv_file);
                 return 1;
             }
         }
 
         // Calculate averages
-        printf("Totals: KernelExecTime=%.3f, KernelProcTime=%.3f, TotalProcTime=%.3f\n",
-               total_kernel_execution_time, total_kernel_processing_time, total_total_processing_time);
-
         double avg_kernel_execution_time = total_kernel_execution_time / 100.0;
-        double avg_kernel_processing_time = total_kernel_processing_time / 100.0;
         double avg_total_processing_time = total_total_processing_time / 100.0;
 
-        printf("Averages: KernelExecTime=%.3f, KernelProcTime=%.3f, TotalProcTime=%.3f\n",
-               avg_kernel_execution_time, avg_kernel_processing_time, avg_total_processing_time);
+        printf("Averages: KernelExecTime=%.3f, TotalProcTime=%.3f\n",
+               avg_kernel_execution_time, avg_total_processing_time);
 
         // Write the averages to the CSV file
-        fprintf(csv_file, "%d,%u,%.3f,%.3f,%.3f\n",
+        fprintf(csv_file, "%d,%u,%.3f,%.3f\n",
                 num_samples_per_group, num_groups,
-                avg_kernel_execution_time, avg_kernel_processing_time, avg_total_processing_time);
+                avg_kernel_execution_time, avg_total_processing_time);
 
         printf("Averages for %d samples per group written to results.csv\n", num_samples_per_group);
     }
